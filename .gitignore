@@ -1,0 +1,5 @@
+target
+Cargo.lock
+shell.nix
+dist
+generated_cards

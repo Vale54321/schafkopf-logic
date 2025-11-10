@@ -1,0 +1,18 @@
+[package]
+name = "schafkopf-logic"
+version = "0.1.0"
+edition = "2024"
+description = "Logic and rules for the Schafkopf card game: deck, suits, ranks and game modes."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Vale54321/schafkopf-logic"
+homepage = "https://github.com/Vale54321/schafkopf-logic"
+keywords = ["schafkopf", "card-game", "trick-taking"]
+categories = ["game-development"]
+authors = ["Valentin Heiserer <valentin@heiserer.de>"]
+exclude = ["shell.nix"]
+
+[dependencies]
+strum = "0.27"
+strum_macros = "0.27"
+rand = "0.9"
