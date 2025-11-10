@@ -1,0 +1,76 @@
+name: Release crate
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    name: Publish to crates.io and create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and git index
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build and test
+        run: cargo test --workspace --verbose
+
+      - name: Install cargo-edit and set crate version
+        id: set_version
+        run: |
+          cargo install cargo-edit --locked --force
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          cargo set-version "$VERSION" --workspace
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Configure Cargo registries (crates.io default + add Gitea)
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.CARGO_GITEA_TOKEN }}
+          GITEA_BASE_URL: https://git.heiserer.de
+          REGISTRY_OWNER: ${{ github.repository_owner }}
+        run: |
+          mkdir -p ~/.cargo
+          # crates.io stays default
+          cat > ~/.cargo/config.toml <<'EOF'
+          [registry]
+          default = "crates-io"
+          EOF
+
+          # Add Gitea as extra registry (sparse index recommended)
+          {
+            echo "[registries.gitea]"
+            echo "index = \"sparse+${GITEA_BASE_URL}/api/packages/${REGISTRY_OWNER}/cargo/\""
+          } >> ~/.cargo/config.toml
+
+          # Auth for Gitea registry
+          umask 077
+          cat > ~/.cargo/credentials.toml <<EOF
+          [registries.gitea]
+          token = "Bearer ${TOKEN}"
+          EOF
+
+      - name: Publish to Gitea registry
+        run: cargo publish --registry gitea --allow-dirty
+
+#      - name: Publish to crates.io
+#        env:
+#          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+#        run: |
+#          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+#            echo "CARGO_REGISTRY_TOKEN is not set. Set it in repository secrets to publish to crates.io"
+#            exit 1
+#          fi
+#          cargo publish --token "$CARGO_REGISTRY_TOKEN" --allow-dirty
