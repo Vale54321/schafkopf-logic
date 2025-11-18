@@ -22,7 +22,7 @@ jobs:
       - name: Install Rust
         if: matrix.os == 'windows-latest'
         run: |
-          choco install visualstudio2022-workload-vctools -y
+          choco install visualstudio2019-workload-vctools -y
           choco install rust-ms -y
 
           
