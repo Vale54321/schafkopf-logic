@@ -21,7 +21,6 @@ jobs:
       - name: Install Rust
         if: matrix.os == 'windows-latest'
         run: |
-          choco install visualstudio2019-workload-vctools -y
           choco install rust-ms -y
 
       - name: Cache cargo registry and git index
