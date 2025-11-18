@@ -16,8 +16,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
         if: matrix.os == 'ubuntu-latest'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install rust-ms
+          
 
       - name: Cache cargo registry and git index
         uses: actions/cache@v4
