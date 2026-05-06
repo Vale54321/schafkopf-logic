@@ -39,7 +39,7 @@ jobs:
         shell: bash
         env:
           TOKEN: ${{ secrets.CONTAINER_REGISTRY_TOKEN }}
-          FORGEJO_BASE_URL: https://git.heiserer.de
+          FORGEJO_BASE_URL: https://forgejo.heiserer.de
           REGISTRY_OWNER: ${{ github.repository_owner }}
         run: |
           mkdir -p ~/.cargo
