@@ -35,11 +35,11 @@ jobs:
           cargo set-version "$VERSION" --workspace
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Configure Cargo registries (crates.io default + add Gitea)
+      - name: Configure Cargo registries (crates.io default + add Forgejo)
         shell: bash
         env:
-          TOKEN: ${{ secrets.CARGO_GITEA_TOKEN }}
-          GITEA_BASE_URL: https://git.heiserer.de
+          TOKEN: ${{ secrets.CONTAINER_REGISTRY_TOKEN }}
+          FORGEJO_BASE_URL: https://git.heiserer.de
           REGISTRY_OWNER: ${{ github.repository_owner }}
         run: |
           mkdir -p ~/.cargo
@@ -49,21 +49,21 @@ jobs:
           default = "crates-io"
           EOF
 
-          # Add Gitea as extra registry (sparse index recommended)
+          # Add Forgejo as extra registry (sparse index recommended)
           {
-            echo "[registries.gitea]"
-            echo "index = \"sparse+${GITEA_BASE_URL}/api/packages/${REGISTRY_OWNER}/cargo/\""
+            echo "[registries.forgejo]"
+            echo "index = \"sparse+${FORGEJO_BASE_URL}/api/packages/${REGISTRY_OWNER}/cargo/\""
           } >> ~/.cargo/config.toml
 
-          # Auth for Gitea registry
+          # Auth for Forgejo registry
           umask 077
           cat > ~/.cargo/credentials.toml <<EOF
-          [registries.gitea]
+          [registries.forgejo]
           token = "Bearer ${TOKEN}"
           EOF
 
-      - name: Publish to Gitea registry
-        run: cargo publish --registry gitea --allow-dirty
+      - name: Publish to Forgejo registry
+        run: cargo publish --registry forgejo --allow-dirty
 
       - name: Publish to crates.io
         env:
