@@ -57,7 +57,7 @@ pub struct CompletedTrick {
     pub winner: PlayerId,
 }
 
-/// Phase 2 stops after one trick; a complete match will extend these phases.
+/// The demo stops after one trick; a complete match will extend these phases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GamePhase {
     PlayingTrick,
@@ -84,6 +84,13 @@ pub enum GameError {
         player: PlayerId,
         card: Card,
     },
+    MustFollowSuit {
+        player: PlayerId,
+        suit: crate::deck::Suit,
+    },
+    MustFollowTrump {
+        player: PlayerId,
+    },
     TrickAlreadyComplete,
 }
 
@@ -102,6 +109,8 @@ impl fmt::Display for GameError {
             Self::CardNotInHand { player, card } => {
                 write!(f, "{player} does not hold {card}")
             }
+            Self::MustFollowSuit { player, suit } => write!(f, "{player} must follow {suit}"),
+            Self::MustFollowTrump { player } => write!(f, "{player} must play a trump card"),
             Self::TrickAlreadyComplete => write!(f, "this one-trick game is complete"),
         }
     }

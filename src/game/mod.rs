@@ -1,9 +1,10 @@
 //! Deterministic, I/O-free game transitions shared by terminal, native, and web clients.
 //!
-//! This phase implements exactly one trick. Turn order and card ownership are
-//! enforced, but following suit/trump is deliberately deferred to phase 3.
+//! This phase implements exactly one trick. Turn order, card ownership, and
+//! following the led suit or trump are enforced.
 //! All modes use the existing trick evaluator; this is not complete match logic.
 
+mod rules;
 mod types;
 pub use types::*;
 
@@ -55,6 +56,22 @@ impl Game {
         self.completed_trick
     }
 
+    /// Legal actions for the current turn. Other seats and a completed trick
+    /// have no actions. The list preserves hand order for deterministic bots.
+    pub fn legal_actions(&self, player: PlayerId) -> Vec<Action> {
+        if self.next_player != Some(player) {
+            return Vec::new();
+        }
+        rules::legal_cards(
+            self.config.mode,
+            &self.hands[player.index()],
+            self.trick.first().map(|play| play.card),
+        )
+        .into_iter()
+        .map(Action::PlayCard)
+        .collect()
+    }
+
     /// Returns an owned snapshot with only this player's private cards.
     /// A backend must bind this ID to the authenticated player's seat.
     pub fn observation(&self, player: PlayerId) -> Observation {
@@ -62,6 +79,7 @@ impl Game {
             player,
             config: self.config,
             hand: self.hands[player.index()].clone(),
+            legal_actions: self.legal_actions(player),
             hand_sizes: std::array::from_fn(|index| self.hands[index].len()),
             next_player: self.next_player,
             trick: self.trick.clone(),
@@ -70,7 +88,6 @@ impl Game {
     }
 
     /// Validates an action before mutation. Rejected actions leave all state unchanged.
-    /// Until phase 3, any card in the acting player's hand may be played.
     pub fn apply(&mut self, player: PlayerId, action: Action) -> Result<Vec<GameEvent>, GameError> {
         let expected = self.next_player.ok_or(GameError::TrickAlreadyComplete)?;
         if player != expected {
@@ -82,13 +99,25 @@ impl Game {
 
         match action {
             Action::PlayCard(card) => {
-                let hand = &mut self.hands[player.index()];
+                let hand = &self.hands[player.index()];
                 let index = hand
                     .iter()
                     .position(|held| *held == card)
                     .ok_or(GameError::CardNotInHand { player, card })?;
 
-                hand.remove(index);
+                if !self.legal_actions(player).contains(&action) {
+                    let lead = self.trick[0].card;
+                    return Err(if self.config.mode.is_trump(&lead) {
+                        GameError::MustFollowTrump { player }
+                    } else {
+                        GameError::MustFollowSuit {
+                            player,
+                            suit: lead.suit,
+                        }
+                    });
+                }
+
+                self.hands[player.index()].remove(index);
                 let play = PlayedCard { player, card };
                 self.trick.push(play);
                 let mut events = vec![GameEvent::CardPlayed(play)];

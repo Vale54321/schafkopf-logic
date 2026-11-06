@@ -127,7 +127,7 @@ fn completes_a_trick_from_each_leader_and_maps_winner_to_correct_seat() {
         for offset in 0..4 {
             let player = PlayerId::ALL[(leader.index() + offset) % 4];
             assert_eq!(game.next_player(), Some(player));
-            let card = game.observation(player).hand[0];
+            let Action::PlayCard(card) = game.legal_actions(player)[0];
             let play = PlayedCard { player, card };
             plays.push(play);
             let events = game.apply(player, Action::PlayCard(card)).unwrap();
@@ -180,8 +180,228 @@ fn identical_decks_and_actions_produce_identical_events_and_state() {
     let mut first = game();
     let mut second = game();
     for player in PlayerId::ALL {
-        let action = Action::PlayCard(first.observation(player).hand[2]);
+        let action = first.legal_actions(player)[0];
         assert_eq!(first.apply(player, action), second.apply(player, action));
         assert_eq!(first, second);
+    }
+}
+
+#[test]
+fn legal_actions_are_only_exposed_for_the_acting_player() {
+    let mut game = game();
+    let player = PlayerId::ALL[0];
+    let view = game.observation(player);
+    assert_eq!(view.legal_cards().collect::<Vec<_>>(), view.hand);
+    assert_eq!(view.legal_actions, game.legal_actions(player));
+    for other in &PlayerId::ALL[1..] {
+        assert!(game.legal_actions(*other).is_empty());
+        assert!(game.observation(*other).legal_actions.is_empty());
+    }
+    game.apply(player, view.legal_actions[0]).unwrap();
+    assert!(game.legal_actions(player).is_empty());
+}
+
+#[test]
+fn rejects_trumping_a_suit_that_can_be_followed_without_mutation() {
+    use crate::deck::{Rank::*, Suit::*};
+    let mut game = game();
+    game.apply(
+        PlayerId::ALL[0],
+        Action::PlayCard(Card {
+            suit: Schell,
+            rank: Sieben,
+        }),
+    )
+    .unwrap();
+    let before = game.clone();
+    let player = PlayerId::ALL[1];
+    assert_eq!(
+        game.legal_actions(player),
+        vec![
+            Action::PlayCard(Card {
+                suit: Schell,
+                rank: Acht
+            }),
+            Action::PlayCard(Card {
+                suit: Schell,
+                rank: Koenig
+            }),
+        ]
+    );
+    assert_eq!(
+        game.apply(
+            player,
+            Action::PlayCard(Card {
+                suit: Herz,
+                rank: Acht
+            })
+        ),
+        Err(GameError::MustFollowSuit {
+            player,
+            suit: Schell
+        })
+    );
+    assert_eq!(game, before);
+}
+
+#[test]
+fn rejects_discarding_when_trump_was_led_and_trump_is_available() {
+    use crate::deck::{Rank::*, Suit::*};
+    let mut game = game();
+    game.apply(
+        PlayerId::ALL[0],
+        Action::PlayCard(Card {
+            suit: Eichel,
+            rank: Ober,
+        }),
+    )
+    .unwrap();
+    let before = game.clone();
+    let player = PlayerId::ALL[1];
+    assert_eq!(
+        game.legal_actions(player),
+        vec![
+            Action::PlayCard(Card {
+                suit: Herz,
+                rank: Acht
+            }),
+            Action::PlayCard(Card {
+                suit: Herz,
+                rank: Koenig
+            }),
+        ]
+    );
+    assert_eq!(
+        game.apply(
+            player,
+            Action::PlayCard(Card {
+                suit: Schell,
+                rank: Acht
+            })
+        ),
+        Err(GameError::MustFollowTrump { player })
+    );
+    assert_eq!(game, before);
+}
+
+#[test]
+fn bettel_uses_hearts_solo_trumps_and_following_rules() {
+    use crate::deck::{Rank::*, Suit::*};
+    let mut config = config(PlayerId::ALL[0]);
+    config.mode = Gamemode::Bettel;
+    let mut game = Game::new(config, Deck::new()).unwrap();
+    game.apply(
+        PlayerId::ALL[0],
+        Action::PlayCard(Card {
+            suit: Eichel,
+            rank: Ober,
+        }),
+    )
+    .unwrap();
+    let player = PlayerId::ALL[1];
+    let before = game.clone();
+    assert_eq!(
+        game.apply(
+            player,
+            Action::PlayCard(Card {
+                suit: Schell,
+                rank: Acht
+            })
+        ),
+        Err(GameError::MustFollowTrump { player })
+    );
+    assert_eq!(game, before);
+    for (player, card) in [
+        (
+            PlayerId::ALL[1],
+            Card {
+                suit: Herz,
+                rank: Acht,
+            },
+        ),
+        (
+            PlayerId::ALL[2],
+            Card {
+                suit: Herz,
+                rank: Neun,
+            },
+        ),
+        (
+            PlayerId::ALL[3],
+            Card {
+                suit: Schell,
+                rank: Unter,
+            },
+        ),
+    ] {
+        game.apply(player, Action::PlayCard(card)).unwrap();
+    }
+    assert_eq!(game.completed_trick().unwrap().winner, PlayerId::ALL[0]);
+    assert_eq!(game.phase(), GamePhase::TrickComplete);
+    assert!(game.legal_actions(PlayerId::ALL[0]).is_empty());
+}
+
+#[test]
+fn every_supported_mode_completes_legal_tricks_from_every_leader_and_lead() {
+    let suits = [Suit::Eichel, Suit::Gras, Suit::Herz, Suit::Schell];
+    let mut modes = vec![
+        Gamemode::Bettel,
+        Gamemode::Wenz(None),
+        Gamemode::Geier(None),
+        Gamemode::Ramsch,
+    ];
+    for suit in suits {
+        modes.extend([
+            Gamemode::Solo(suit),
+            Gamemode::Wenz(Some(suit)),
+            Gamemode::Geier(Some(suit)),
+        ]);
+        if suit != Suit::Herz {
+            modes.push(Gamemode::Sauspiel(suit));
+        }
+    }
+    for mode in modes {
+        for leader in PlayerId::ALL {
+            for lead_index in 0..8 {
+                let mut game = Game::new(
+                    GameConfig {
+                        mode,
+                        first_player: leader,
+                    },
+                    Deck::new(),
+                )
+                .unwrap();
+                let lead = game.legal_actions(leader)[lead_index];
+                game.apply(leader, lead).unwrap();
+                while let Some(player) = game.next_player() {
+                    let view = game.observation(player);
+                    assert!(!view.legal_actions.is_empty());
+                    for candidate in &view.hand {
+                        let mut candidate_game = game.clone();
+                        let action = Action::PlayCard(*candidate);
+                        let result = candidate_game.apply(player, action);
+                        if view.legal_actions.contains(&action) {
+                            assert!(result.is_ok(), "{mode:?}: {result:?}");
+                        } else {
+                            assert!(matches!(
+                                result,
+                                Err(GameError::MustFollowSuit { .. }
+                                    | GameError::MustFollowTrump { .. })
+                            ));
+                            assert_eq!(candidate_game, game);
+                        }
+                    }
+                    game.apply(player, view.legal_actions[0]).unwrap();
+                }
+                assert_eq!(game.phase(), GamePhase::TrickComplete);
+                assert!(game.completed_trick().is_some());
+                for player in PlayerId::ALL {
+                    let view = game.observation(player);
+                    assert!(view.legal_actions.is_empty());
+                    assert_eq!(view.hand_sizes, [7; 4]);
+                    assert_eq!(view.trick.len(), 4);
+                }
+            }
+        }
     }
 }

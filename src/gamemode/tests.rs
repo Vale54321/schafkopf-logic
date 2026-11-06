@@ -34,7 +34,7 @@ fn winner_test_1() {
     let winner = Gamemode::Solo(Suit::Gras).winning_card([&c1, &c2, &c3, &c4]);
     assert_eq!(winner, &c2);
 
-    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]);
+    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // Herz Solo trump rules, with Bettel's avoid-tricks objective.
     assert_eq!(winner, &c2);
 
     let winner = Gamemode::Ramsch.winning_card([&c1, &c2, &c3, &c4]);
@@ -65,8 +65,8 @@ fn sauspiel_trump_hierarchy() {
     let winner = Gamemode::Solo(Suit::Schell).winning_card([&c1, &c2, &c3, &c4]);
     assert_eq!(winner, &c2);
 
-    // Herz-trump modes equivalent
-    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]);
+    // Bettel and Ramsch both use the Herz Solo trump rules.
+    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // Herz Solo trump rules, with Bettel's avoid-tricks objective.
     assert_eq!(winner, &c2);
     let winner = Gamemode::Ramsch.winning_card([&c1, &c2, &c3, &c4]);
     assert_eq!(winner, &c2);
@@ -93,7 +93,7 @@ fn sauspiel_ober_suit_precedence() {
     let winner = Gamemode::Wenz(None).winning_card([&c1, &c2, &c3, &c4]); // only Unter trump
     assert_eq!(winner, &c4);
 
-    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // Herz-trump
+    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // Herz Solo trump rules, with Bettel's avoid-tricks objective.
     assert_eq!(winner, &c2);
 }
 
@@ -251,18 +251,17 @@ fn geier_ober_trumps_over_optional_suit_trump() {
 }
 
 #[test]
-fn bettel_behaves_like_herz_trump() {
-    // Current implementation treats Bettel like Herz-trump
+fn bettel_uses_hearts_solo_trumps() {
     let c1 = card(Suit::Gras, Rank::Ass);        // led
     let c2 = card(Suit::Herz, Rank::Neun);       // trump by Herz suit
     let c3 = card(Suit::Schell, Rank::Ass);
     let c4 = card(Suit::Eichel, Rank::Koenig);
 
-    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]);
+    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // Herz Solo trump rules, with Bettel's avoid-tricks objective.
     assert_eq!(winner, &c2);
 
     // More checks:
-    let winner = Gamemode::Ramsch.winning_card([&c1, &c2, &c3, &c4]); // same as Bettel currently
+    let winner = Gamemode::Ramsch.winning_card([&c1, &c2, &c3, &c4]); // Herz is trump in Ramsch
     assert_eq!(winner, &c2);
 
     let winner = Gamemode::Sauspiel(Suit::Eichel).winning_card([&c1, &c2, &c3, &c4]); // Herz trump
@@ -293,7 +292,7 @@ fn ramsch_behaves_like_herz_trump() {
     assert_eq!(winner, &c3);
 
     // More checks:
-    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // same as Ramsch currently
+    let winner = Gamemode::Bettel.winning_card([&c1, &c2, &c3, &c4]); // Herz Solo trump rules, with Bettel's avoid-tricks objective.
     assert_eq!(winner, &c3);
 
     let winner = Gamemode::Sauspiel(Suit::Eichel).winning_card([&c1, &c2, &c3, &c4]); // Herz trump
@@ -310,4 +309,45 @@ fn ramsch_behaves_like_herz_trump() {
 
     let winner = Gamemode::Geier(Some(Suit::Herz)).winning_card([&c1, &c2, &c3, &c4]); // suit trump Herz
     assert_eq!(winner, &c3);
+}
+
+#[test]
+fn bettel_has_the_same_trumps_as_hearts_solo() {
+    let deck = crate::deck::Deck::new();
+    for card in deck.iter() {
+        assert_eq!(
+            Gamemode::Bettel.is_trump(card),
+            Gamemode::Solo(Suit::Herz).is_trump(card),
+            "{card}"
+        );
+    }
+    assert_eq!(
+        deck.iter()
+            .filter(|card| Gamemode::Bettel.is_trump(card))
+            .count(),
+        14
+    );
+}
+
+#[test]
+fn bettel_has_the_same_trick_ordering_as_hearts_solo() {
+    let cards: Vec<_> = crate::deck::Deck::new().iter().copied().collect();
+    // Cover every set of four distinct cards and every possible led card.
+    for a in 0..cards.len() {
+        for b in (a + 1)..cards.len() {
+            for c in (b + 1)..cards.len() {
+                for d in (c + 1)..cards.len() {
+                    let mut trick = [&cards[a], &cards[b], &cards[c], &cards[d]];
+                    for _ in 0..4 {
+                        assert_eq!(
+                            Gamemode::Bettel.winning_card(trick),
+                            Gamemode::Solo(Suit::Herz).winning_card(trick),
+                            "{trick:?}"
+                        );
+                        trick.rotate_left(1);
+                    }
+                }
+            }
+        }
+    }
 }
