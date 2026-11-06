@@ -46,7 +46,49 @@ fn main() {
 }
 ```
 
-## Development
+## Shared engine API
+
+`game::Game` owns all four hands and the public trick state. It performs no I/O
+and uses no random choices during transitions. Shuffle a `Deck` before passing
+it to `Game::new`; an unshuffled deck is useful for deterministic tests.
+
+```rust
+use schafkopf_logic::{
+    deck::{Deck, Suit},
+    game::{Action, Game, GameConfig, PlayerId},
+    gamemode::Gamemode,
+};
+
+let player = PlayerId::ALL[0];
+let mut game = Game::new(
+    GameConfig {
+        mode: Gamemode::Solo(Suit::Herz),
+        first_player: player,
+    },
+    Deck::new(),
+)?;
+let observation = game.observation(player);
+let events = game.apply(player, Action::PlayCard(observation.hand[0]))?;
+# Ok::<(), schafkopf_logic::game::GameError>(())
+```
+
+- `observation(player)` returns a detached snapshot containing that player's
+  hand, public hand sizes, turn, played cards, and eventual trick winner.
+- `apply(player, action)` validates before changing state and returns public
+  events. Errors are structured `GameError` values. No mutation occurs on error.
+- `next_player()`, `phase()`, and `completed_trick()` expose progress.
+- Stable `PlayerId` seats use zero-based indices.
+
+Frontends own input and presentation; NPCs choose actions from observations.
+A future backend must map authenticated users to their seat before returning
+observations. Do not expose the authoritative `Game` or its debug output to clients.
+The existing `player` module remains available for compatibility; the new engine
+does not use its hand-owning player types or terminal input helpers.
+
+Actions, events, and observations are plain typed data, with no UI or transport
+dependencies. Serialization and persistent recording are deferred to phase 5.
+
+## Development checks
 
 Build and run the tests locally:
 

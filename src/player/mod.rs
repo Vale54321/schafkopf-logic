@@ -56,7 +56,10 @@ pub trait PlayerBaseAccess {
         self.base().name()
     }
 
-    fn set_name(&mut self, name: impl Into<String>) {
+    fn set_name(&mut self, name: impl Into<String>)
+    where
+        Self: Sized,
+    {
         self.base_mut().set_name(name);
     }
 }

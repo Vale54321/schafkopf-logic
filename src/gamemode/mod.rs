@@ -1,5 +1,6 @@
 use crate::deck::{Card, Suit, Rank};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gamemode {
     Sauspiel(Suit),
     Solo(Suit),

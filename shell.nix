@@ -8,7 +8,6 @@ pkgs.mkShell {
     rustPackages.clippy
     pkg-config
     gnupg
-    pinentry
     pinentry-curses
   ];
   shellHook = ''
