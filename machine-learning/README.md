@@ -15,7 +15,7 @@ are ignored by Git.
 In the logic repository:
 
 ```bash
-nix-shell --run 'cargo build --release --example self_play --example replay_dataset --example agent_fixture'
+nix-shell --run 'cargo build --release --example self_play --example replay_dataset --example agent_fixture --example evaluation_bridge'
 ```
 
 For Python, either use this directory's Nix environment:
@@ -98,7 +98,8 @@ Checkpoint arrays are `w1`, `b1`, `w2`, `b2`, plus `feature_version` and
 legal-action masking and argmax. Load with `numpy.load(..., allow_pickle=False)`.
 The game can now use this checkpoint through the HTTP service below. A native
 Rust weight loader, bidding model, and reinforcement learning are not provided.
-Game-strength evaluation is separate from imitation accuracy.
+Paired game evaluation and sampled decision analysis are now available; see
+[EVALUATION.md](EVALUATION.md).
 
 ## Feature contract
 
@@ -182,3 +183,12 @@ for local development.
 Service tests use a temporary checkpoint and localhost HTTP. Build the logic
 `agent_fixture` example before running `tests/test_serve.py`; it verifies Python
 responses with the actual Rust deserializer and request context.
+
+## Evaluate a checkpoint or player
+
+See [EVALUATION.md](EVALUATION.md) for the batched paired arena, exact reusable
+deal suites, training-deal exclusion, role/mode confidence intervals, strict
+failure counters, and sampled player-information decision assessments. Outcome
+scores and decision quality stay separate. The arena uses the same NPZ weights
+and feature encoder as the HTTP service, with vectorized local inference for
+large runs. Reports are versioned types in `schafkopf_logic::evaluation`.

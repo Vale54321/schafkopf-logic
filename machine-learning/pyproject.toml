@@ -12,6 +12,8 @@ dependencies = ["numpy>=1.26,<3", "pyarrow>=18,<30"]
 schafkopf-data = "schafkopf_ml.dataset:main"
 schafkopf-train = "schafkopf_ml.train:main"
 schafkopf-agent = "schafkopf_ml.serve:main"
+schafkopf-evaluate = "schafkopf_ml.evaluation.arena:main"
+schafkopf-analyze = "schafkopf_ml.evaluation.analyze:main"
 
 [tool.setuptools.packages.find]
 include = ["schafkopf_ml*"]

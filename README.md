@@ -2,7 +2,7 @@
 
 A frontend-independent Schafkopf engine with complete eight-trick games,
 declarations, legal actions, scoring, NPC policies, and replayable recordings.
-
+The repository also contains separate Python training and evaluation tools.
 
 **Crate:** [`schafkopf-logic`](https://crates.io/crates/schafkopf-logic)
 
@@ -306,13 +306,35 @@ more examples alone do not label optimal actions.
 
 ## Machine learning project
 
-The movable [machine-learning project](machine-learning/README.md) provides
-streaming dataset preparation, deal-grouped splits, a documented feature encoder,
-and a NumPy imitation model. Python tooling, datasets, and checkpoints are
-excluded from the published Rust crate.
+The movable [machine-learning/](machine-learning/README.md) project owns feature
+encoding, streaming validation/conversion to Parquet, deal-grouped 80/10/10 splits,
+and a small NumPy imitation model. Rust owns rules and recording; Python invokes
+a supplied replay executable rather than duplicating game logic. No ML framework
+or dataset dependency is introduced into the Rust library.
 
-The model can be served over HTTP using the shared [agent protocol](docs/agent-protocol.md).
-Model hosting and inference remain in the ML project; the engine owns no networking.
+Start with a 50,000-game subset; see the project README for commands, the feature
+contract, tests, and the checkpoint format. Generated datasets/checkpoints stay
+outside Git. The model can be served over HTTP and used by `schafkopf-game`; see the ML
+README and [agent protocol](docs/agent-protocol.md). A native Rust weight loader
+remains subsequent work. Paired model evaluation and sampled decision analysis
+are available through the evaluation commands below.
+
+## Player and model evaluation
+
+`evaluation` exposes versioned arena/decision report types, an explicit
+`balanced_win_v1` benchmark utility, and checked reconstruction of hypothetical
+states from a player observation. It does not change game results or run analysis
+automatically. Reports can be consumed by frontends without introducing an ML
+runtime into this crate.
+
+Build `cargo build --release --example evaluation_bridge`, then use the movable
+ML project's [evaluation commands](machine-learning/EVALUATION.md). The arena
+compares policies on identical held-out deals, all four seats, fixed opponents,
+and (for card-play evaluation) frozen bidding. It batches inference, streams
+statistics, clusters confidence intervals by deal, and saves exact deal suites.
+Strict failures are recorded without substituting heuristic moves. A separate
+analyzer estimates action quality from sampled hands consistent with the player's
+information; an actual loss or unlikely victory is not itself a skill grade.
 
 ## Development checks
 
