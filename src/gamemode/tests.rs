@@ -351,3 +351,94 @@ fn bettel_has_the_same_trick_ordering_as_hearts_solo() {
         }
     }
 }
+
+#[test]
+fn hand_sorting_follows_trick_strength_for_all_modes_and_preserves_cards() {
+    use crate::{deck::Deck, rating::DECLARABLE_MODES};
+    for mode in DECLARABLE_MODES.into_iter().chain([Gamemode::Ramsch]) {
+        let original: Vec<_> = Deck::new().iter().copied().collect();
+        let mut sorted = original.clone();
+        mode.sort_hand(&mut sorted);
+        assert_eq!(sorted.len(), 32);
+        assert!(original.iter().all(|card| sorted.contains(card)));
+        for (index, first) in sorted.iter().enumerate() {
+            for second in &sorted[index + 1..] {
+                assert!(
+                    !mode.is_trump(second) || mode.is_trump(first),
+                    "{mode:?}: trump follows non-trump"
+                );
+                if (mode.is_trump(first) && mode.is_trump(second)) || first.suit == second.suit {
+                    assert_eq!(
+                        mode.winning_card([first, second, first, second]),
+                        first,
+                        "{mode:?}: {first} before {second}"
+                    );
+                }
+                if !mode.is_trump(first) && !mode.is_trump(second) {
+                    assert!(first.suit <= second.suit);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn wenz_and_geier_keep_the_other_face_rank_in_its_natural_suit() {
+    use Rank::*;
+    use Suit::*;
+    let original = vec![
+        card(Schell, Sieben),
+        card(Eichel, Ober),
+        card(Gras, Unter),
+        card(Herz, Ass),
+        card(Eichel, Ass),
+        card(Eichel, Koenig),
+        card(Herz, Unter),
+        card(Gras, Ober),
+    ];
+    for (mode, expected) in [
+        (
+            Gamemode::Wenz(None),
+            vec![
+                card(Gras, Unter),
+                card(Herz, Unter),
+                card(Eichel, Ass),
+                card(Eichel, Koenig),
+                card(Eichel, Ober),
+                card(Gras, Ober),
+                card(Herz, Ass),
+                card(Schell, Sieben),
+            ],
+        ),
+        (
+            Gamemode::Geier(None),
+            vec![
+                card(Eichel, Ober),
+                card(Gras, Ober),
+                card(Eichel, Ass),
+                card(Eichel, Koenig),
+                card(Gras, Unter),
+                card(Herz, Ass),
+                card(Herz, Unter),
+                card(Schell, Sieben),
+            ],
+        ),
+        (
+            Gamemode::Solo(Herz),
+            vec![
+                card(Eichel, Ober),
+                card(Gras, Ober),
+                card(Gras, Unter),
+                card(Herz, Unter),
+                card(Herz, Ass),
+                card(Eichel, Ass),
+                card(Eichel, Koenig),
+                card(Schell, Sieben),
+            ],
+        ),
+    ] {
+        let mut hand = original.clone();
+        mode.sort_hand(&mut hand);
+        assert_eq!(hand, expected, "{mode:?}");
+    }
+}

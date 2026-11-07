@@ -5,6 +5,7 @@ fn config(first_player: PlayerId) -> GameConfig {
     GameConfig {
         mode: Gamemode::Solo(Suit::Herz),
         first_player,
+        declarer: PlayerId::ALL[0],
     }
 }
 
@@ -50,6 +51,37 @@ fn observation_is_a_detached_snapshot() {
     observation.hand.clear();
     observation.hand_sizes = [0; 4];
     assert_eq!(game, before);
+}
+
+#[test]
+fn observations_distinguish_the_visible_trick_leader_from_the_next_opener() {
+    let opener = PlayerId::ALL[2];
+    let mut game = Game::new(config(opener), Deck::new()).unwrap();
+    let view = game.observation(opener);
+    assert_eq!(view.trick_leader(), opener);
+    assert_eq!(view.next_trick_leader(), Some(opener));
+    for turn in 0..32 {
+        let player = game.next_player().unwrap();
+        let action = game.legal_actions(player)[0];
+        game.apply(player, action).unwrap();
+        let view = game.observation(opener);
+        assert_eq!(view.trick_leader(), view.trick[0].player);
+        if turn == 0 {
+            assert_eq!(view.trick_leader(), opener);
+        }
+        if turn == 31 {
+            assert_eq!(view.next_trick_leader(), None);
+        } else if view.phase == GamePhase::TrickComplete {
+            assert_eq!(view.next_trick_leader(), view.winner);
+            let next_opener = view.winner.unwrap();
+            let action = game.legal_actions(next_opener)[0];
+            let mut next = game.clone();
+            next.apply(next_opener, action).unwrap();
+            assert_eq!(next.observation(opener).trick_leader(), next_opener);
+        } else {
+            assert_eq!(view.next_trick_leader(), None);
+        }
+    }
 }
 
 #[test]
@@ -156,7 +188,7 @@ fn completes_a_trick_from_each_leader_and_maps_winner_to_correct_seat() {
                 );
                 assert_eq!(game.completed_trick(), Some(completed));
                 assert_eq!(game.phase(), GamePhase::TrickComplete);
-                assert_eq!(game.next_player(), None);
+                assert_eq!(game.next_player(), Some(winner));
                 for observer in PlayerId::ALL {
                     let observation = game.observation(observer);
                     assert_eq!(observation.trick, plays);
@@ -165,13 +197,11 @@ fn completes_a_trick_from_each_leader_and_maps_winner_to_correct_seat() {
                 }
             }
         }
-        let before = game.clone();
-        let card = game.observation(leader).hand[0];
-        assert_eq!(
-            game.apply(leader, Action::PlayCard(card)),
-            Err(GameError::TrickAlreadyComplete)
-        );
-        assert_eq!(game, before);
+        let winner = game.next_player().unwrap();
+        let action = game.legal_actions(winner)[0];
+        game.apply(winner, action).unwrap();
+        assert_eq!(game.observation(winner).trick.len(), 1);
+        assert_eq!(game.phase(), GamePhase::PlayingTrick);
     }
 }
 
@@ -338,7 +368,7 @@ fn bettel_uses_hearts_solo_trumps_and_following_rules() {
     }
     assert_eq!(game.completed_trick().unwrap().winner, PlayerId::ALL[0]);
     assert_eq!(game.phase(), GamePhase::TrickComplete);
-    assert!(game.legal_actions(PlayerId::ALL[0]).is_empty());
+    assert_eq!(game.next_player(), Some(PlayerId::ALL[0]));
 }
 
 #[test]
@@ -367,11 +397,13 @@ fn every_supported_mode_completes_legal_tricks_from_every_leader_and_lead() {
                     GameConfig {
                         mode,
                         first_player: leader,
+                        declarer: PlayerId::ALL[0],
                     },
                     Deck::new(),
                 )
                 .unwrap();
-                let lead = game.legal_actions(leader)[lead_index];
+                let initial = game.legal_actions(leader);
+                let lead = initial[lead_index % initial.len()];
                 game.apply(leader, lead).unwrap();
                 while let Some(player) = game.next_player() {
                     let view = game.observation(player);
@@ -386,22 +418,134 @@ fn every_supported_mode_completes_legal_tricks_from_every_leader_and_lead() {
                             assert!(matches!(
                                 result,
                                 Err(GameError::MustFollowSuit { .. }
-                                    | GameError::MustFollowTrump { .. })
+                                    | GameError::MustFollowTrump { .. }
+                                    | GameError::CalledAceRestriction { .. })
                             ));
                             assert_eq!(candidate_game, game);
                         }
                     }
                     game.apply(player, view.legal_actions[0]).unwrap();
                 }
-                assert_eq!(game.phase(), GamePhase::TrickComplete);
+                assert_eq!(game.phase(), GamePhase::Finished);
+                assert!(game.result().is_some());
+                assert_eq!(game.completed_tricks().len(), 8);
+                assert_eq!(game.observation(leader).points.iter().sum::<u16>(), 120);
                 assert!(game.completed_trick().is_some());
                 for player in PlayerId::ALL {
                     let view = game.observation(player);
                     assert!(view.legal_actions.is_empty());
-                    assert_eq!(view.hand_sizes, [7; 4]);
+                    assert_eq!(view.hand_sizes, [0; 4]);
                     assert_eq!(view.trick.len(), 4);
                 }
             }
         }
     }
+}
+
+#[test]
+fn deck_has_120_points_and_unter_is_worth_two() {
+    assert_eq!(crate::deck::Rank::Unter.points(), 2);
+    assert_eq!(
+        Deck::new()
+            .iter()
+            .map(|card| u16::from(card.rank.points()))
+            .sum::<u16>(),
+        120
+    );
+}
+
+#[test]
+fn full_match_collects_each_card_once_and_emits_a_single_final_result() {
+    let mut game = game();
+    let mut played = Vec::new();
+    let mut completed = 0;
+    let mut finishes = 0;
+    while let Some(player) = game.next_player() {
+        let action = game.legal_actions(player)[0];
+        let events = game.apply(player, action).unwrap();
+        for event in events {
+            match event {
+                GameEvent::CardPlayed(play) => {
+                    assert!(!played.contains(&play.card));
+                    played.push(play.card);
+                }
+                GameEvent::TrickCompleted(trick) => {
+                    completed += 1;
+                    if completed < 8 {
+                        assert_eq!(game.next_player(), Some(trick.winner));
+                    }
+                }
+                GameEvent::GameFinished(result) => {
+                    finishes += 1;
+                    assert_eq!(completed, 8);
+                    assert_eq!(result.points.iter().sum::<u16>(), 120);
+                    assert_eq!(result.tricks_won.iter().sum::<u8>(), 8);
+                    assert_eq!(game.result(), Some(&result));
+                }
+            }
+        }
+        let total_collected = game
+            .completed_tricks()
+            .iter()
+            .map(CompletedTrick::points)
+            .sum::<u16>();
+        assert_eq!(
+            game.observation(PlayerId::ALL[0])
+                .points
+                .iter()
+                .sum::<u16>(),
+            total_collected
+        );
+    }
+    assert_eq!((played.len(), completed, finishes), (32, 8, 1));
+    let before = game.clone();
+    for player in PlayerId::ALL {
+        assert!(game.legal_actions(player).is_empty());
+        assert!(game.observation(player).hand.is_empty());
+        assert_eq!(
+            game.apply(player, Action::PlayCard(played[0])),
+            Err(GameError::GameAlreadyFinished)
+        );
+    }
+    assert_eq!(game, before);
+}
+
+#[test]
+fn called_partner_is_not_leaked_to_the_declarer_before_the_ace_is_played() {
+    let config = GameConfig {
+        mode: Gamemode::Sauspiel(Suit::Gras),
+        first_player: PlayerId::ALL[0],
+        declarer: PlayerId::ALL[0],
+    };
+    let mut game = Game::new(config, Deck::new()).unwrap();
+    assert_eq!(game.observation(PlayerId::ALL[0]).partner, None);
+    assert_eq!(game.observation(PlayerId::ALL[1]).partner, None);
+    assert_eq!(
+        game.observation(PlayerId::ALL[3]).partner,
+        Some(PlayerId::ALL[3])
+    );
+    let mut seen = false;
+    while let Some(player) = game.next_player() {
+        let action = game.legal_actions(player)[0];
+        if action
+            == Action::PlayCard(Card {
+                suit: Suit::Gras,
+                rank: crate::deck::Rank::Ass,
+            })
+        {
+            seen = true;
+        }
+        game.apply(player, action).unwrap();
+        assert_eq!(
+            game.observation(PlayerId::ALL[0]).partner,
+            if seen { Some(PlayerId::ALL[3]) } else { None }
+        );
+    }
+    assert!(matches!(
+        game.result().unwrap().reason,
+        ResultReason::Points {
+            partner: Some(_),
+            ..
+        }
+    ));
 }

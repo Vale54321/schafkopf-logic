@@ -1,5 +1,5 @@
-//! Ordinary following-suit rules. Sauspiel called-ace restrictions need match
-//! and partnership state and are deliberately outside this one-trick phase.
+//! Ordinary suit/trump following rules. Called-ace restrictions are layered
+//! on top by the separate Sauspiel module.
 
 use crate::{deck::Card, gamemode::Gamemode};
 

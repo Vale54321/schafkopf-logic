@@ -1,20 +1,37 @@
 use crate::deck::{Card, Rank, Suit};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum Gamemode {
     Sauspiel(Suit),
     Solo(Suit),
     Wenz(Option<Suit>),
     Geier(Option<Suit>),
     /// House variant: Herz Solo trumps and card ordering, but the soloist
-    /// aims to take no tricks (full-match results are handled separately).
+    /// aims to take no tricks.
     Bettel,
     Ramsch,
 }
 
 impl Gamemode {
+    /// Trump first, strongest to weakest, then Eichel/Gras/Herz/Schell with
+    /// A > 10 > K > O > U > 9 > 8 > 7 for the remaining non-trump cards.
+    /// Frontends should sort a copy of the observed hand for presentation.
+    pub fn sort_hand(&self, hand: &mut [Card]) {
+        hand.sort_by_key(|card| {
+            let strength = self.trump_strength(card);
+            (
+                !self.is_trump(card),
+                std::cmp::Reverse(strength),
+                card.suit,
+                card.rank,
+            )
+        });
+    }
+
     /// Shared classification for trick evaluation and engine move validation.
-    pub(crate) fn is_trump(&self, card: &Card) -> bool {
+    pub fn is_trump(&self, card: &Card) -> bool {
         match self {
             Self::Solo(suit) => is_trump(card, &[Rank::Ober, Rank::Unter], Some(*suit)),
             Self::Wenz(suit) => is_trump(card, &[Rank::Unter], *suit),
@@ -25,68 +42,43 @@ impl Gamemode {
         }
     }
 
+    /// Index of the strongest card in a nonempty partial or complete trick.
+    pub fn winning_index(&self, cards: &[Card]) -> Option<usize> {
+        let lead = cards.first()?;
+        let trump_played = cards.iter().any(|card| self.is_trump(card));
+        cards
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| {
+                if trump_played {
+                    self.is_trump(card)
+                } else {
+                    card.suit == lead.suit
+                }
+            })
+            .max_by_key(|(_, card)| {
+                if trump_played {
+                    self.trump_strength(card)
+                } else {
+                    u16::from(non_trump_strength(card.rank))
+                }
+            })
+            .map(|(index, _)| index)
+    }
+
     pub fn winning_card<'a>(&self, cards: [&'a Card; 4]) -> &'a Card {
+        cards[self
+            .winning_index(&cards.map(|card| *card))
+            .expect("a trick contains four cards")]
+    }
+
+    pub(crate) fn trump_strength(&self, card: &Card) -> u16 {
         match self {
-            Gamemode::Sauspiel(_) | Gamemode::Ramsch | Gamemode::Bettel => {
-                winner_for_trump(self, Suit::Herz, cards)
-            }
-            Gamemode::Solo(solo_suit) => winner_for_trump(self, *solo_suit, cards),
-            Gamemode::Wenz(wenz_suit) => winner_for_wenz(self, Rank::Unter, *wenz_suit, cards),
-            Gamemode::Geier(geier_suit) => winner_for_wenz(self, Rank::Ober, *geier_suit, cards),
+            Self::Solo(suit) => trump_strength(card, *suit),
+            Self::Wenz(suit) => trump_strength_wenz(card, Rank::Unter, *suit),
+            Self::Geier(suit) => trump_strength_wenz(card, Rank::Ober, *suit),
+            Self::Sauspiel(_) | Self::Ramsch | Self::Bettel => trump_strength(card, Suit::Herz),
         }
-    }
-}
-
-fn winner_for_wenz<'a>(
-    mode: &Gamemode,
-    rank: Rank,
-    trump_suit: Option<Suit>,
-    cards: [&'a Card; 4],
-) -> &'a Card {
-    if cards.iter().any(|&c| mode.is_trump(c)) {
-        let winner_idx = cards
-            .iter()
-            .enumerate()
-            .filter(|&(_, &c)| mode.is_trump(c))
-            .max_by_key(|&(_, &c)| trump_strength_wenz(c, rank, trump_suit))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        cards[winner_idx]
-    } else {
-        let first_suit = cards[0].suit;
-        let winner_idx = cards
-            .iter()
-            .enumerate()
-            .filter(|&(_, &c)| c.suit == first_suit)
-            .max_by_key(|&(_, &c)| non_trump_strength(c.rank))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        cards[winner_idx]
-    }
-}
-
-fn winner_for_trump<'a>(mode: &Gamemode, trump_suit: Suit, cards: [&'a Card; 4]) -> &'a Card {
-    if cards.iter().any(|&c| mode.is_trump(c)) {
-        // Highest trump wins
-        let winner_idx = cards
-            .iter()
-            .enumerate()
-            .filter(|&(_, &c)| mode.is_trump(c))
-            .max_by_key(|&(_, &c)| trump_strength(c, trump_suit))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        cards[winner_idx]
-    } else {
-        // No trump: highest of the led suit wins
-        let first_suit = cards[0].suit;
-        let winner_idx = cards
-            .iter()
-            .enumerate()
-            .filter(|&(_, &c)| c.suit == first_suit)
-            .max_by_key(|&(_, &c)| non_trump_strength(c.rank))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        cards[winner_idx]
     }
 }
 
