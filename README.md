@@ -311,6 +311,9 @@ streaming dataset preparation, deal-grouped splits, a documented feature encoder
 and a NumPy imitation model. Python tooling, datasets, and checkpoints are
 excluded from the published Rust crate.
 
+The model can be served over HTTP using the shared [agent protocol](docs/agent-protocol.md).
+Model hosting and inference remain in the ML project; the engine owns no networking.
+
 ## Development checks
 
 Build and run the tests locally:

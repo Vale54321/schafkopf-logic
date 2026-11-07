@@ -15,7 +15,7 @@ are ignored by Git.
 In the logic repository:
 
 ```bash
-nix-shell --run 'cargo build --release --example self_play --example replay_dataset'
+nix-shell --run 'cargo build --release --example self_play --example replay_dataset --example agent_fixture'
 ```
 
 For Python, either use this directory's Nix environment:
@@ -96,7 +96,9 @@ than one legal action and include a lowest-legal-card-ID baseline.
 Checkpoint arrays are `w1`, `b1`, `w2`, `b2`, plus `feature_version` and
 `input_size`. Inference is `relu(features @ w1 + b1) @ w2 + b2`, followed by
 legal-action masking and argmax. Load with `numpy.load(..., allow_pickle=False)`.
-This is a supervised imitation baseline; playing strength requires separate game evaluation.
+The game can now use this checkpoint through the HTTP service below. A native
+Rust weight loader, bidding model, and reinforcement learning are not provided.
+Game-strength evaluation is separate from imitation accuracy.
 
 ## Feature contract
 
@@ -116,3 +118,67 @@ nix-shell --run 'python -m unittest discover -s tests -v'
 Tests exercise collection/sharding, legacy conversion, exact replay, content
 hashes, cross-format deduplication, split isolation, feature input boundaries,
 corruption rejection, checkpoint creation, and learning on a small masked task.
+
+## Play against the model through HTTP
+
+After the desired checkpoint save/training run has finished, from this directory:
+
+```bash
+nix-shell
+OPENBLAS_NUM_THREADS=1 python -m schafkopf_ml.serve \
+  --model artifacts/first-model/model.npz --port 8765
+```
+
+The server uses the existing trainer's NPZ format without conversion or changes
+to your running training job. It checks the feature version, weight dimensions,
+and finite values, and hashes the exact bytes it loaded. The model stays fixed
+until you restart the process; it does not hot-reload intermediate saves.
+Missing/incompatible/incomplete checkpoints fail startup with a clear error.
+
+In another terminal, inside `schafkopf-game` and its Nix shell:
+
+```bash
+SCHAFKOPF_AGENT_URL=http://127.0.0.1:8765 cargo run --release
+```
+
+All three NPC seats now request card decisions from the model. Bidding remains
+local heuristic behavior. Without this environment variable the game behaves as
+before. Optional settings:
+
+- `SCHAFKOPF_AGENT_SEATS=1,3`: selected zero-based NPC seats (human seat 0 excluded).
+- `SCHAFKOPF_AGENT_TIMEOUT_MS=2000`: total request deadline in milliseconds.
+- `SCHAFKOPF_AGENT_FAILURE=fallback`: visibly use the local heuristic on failure.
+- `SCHAFKOPF_AGENT_FAILURE=strict`: record failure and pause the turn; redeal to retry.
+
+The adapter runs HTTP asynchronously while rendering continues. The engine
+validates every returned move. Redeal/menu/cancel invalidate pending work; stale
+results cannot affect another turn. Saved game decisions identify the actual
+model checkpoint or heuristic provider; `agent_attempts` records successes,
+fallbacks, and strict failures. Do not count fallback moves as model evaluation.
+
+For a local browser build, start the service with the exact frontend origin:
+
+```bash
+python -m schafkopf_ml.serve --model artifacts/first-model/model.npz \
+  --allow-origin http://127.0.0.1:8080
+```
+
+In that frontend's developer console, set the same configuration keys in
+`localStorage` and reload:
+
+```javascript
+localStorage.setItem("SCHAFKOPF_AGENT_URL", "http://127.0.0.1:8765");
+// Optional: localStorage.setItem("SCHAFKOPF_AGENT_FAILURE", "strict");
+location.reload();
+```
+
+Remove the URL key and reload to return to local NPCs. The server supports
+`GET /info` and `POST /act`; `POST /declare` explicitly returns unsupported (501),
+so clients must not interpret it as passing. See the logic project's
+`docs/agent-protocol.md` for the shared wire contract. For deployed multiplayer,
+the authoritative game server should call the agent; localhost browser setup is
+for local development.
+
+Service tests use a temporary checkpoint and localhost HTTP. Build the logic
+`agent_fixture` example before running `tests/test_serve.py`; it verifies Python
+responses with the actual Rust deserializer and request context.
