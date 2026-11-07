@@ -348,6 +348,15 @@ cargo test
 If you contribute, please file issues or PRs against the repository:
 https://git.heiserer.de/valentin/schafkopf-logic
 
+## Release process
+
+The manifest intentionally stays at `0.0.0`. Publishing a hosted release triggers
+`.github/workflows/release.yml`, which sets the package version from the release
+tag (for example `0.2.0` or `v0.2.0`), builds/tests the crate, and publishes it to
+Forgejo and crates.io using repository secrets. A normal branch push does not
+trigger publication. See [release checklist](docs/releasing.md) and
+[change notes](CHANGELOG.md) for the current working-state scope.
+
 ## License
 
 This crate is licensed under the MIT license — see `LICENSE-MIT` for details.
