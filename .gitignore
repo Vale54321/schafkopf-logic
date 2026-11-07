@@ -3,3 +3,6 @@ Cargo.lock
 dist
 generated_cards
 main.rs
+data/
+
+/games/

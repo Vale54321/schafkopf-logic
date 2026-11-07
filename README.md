@@ -208,6 +208,102 @@ it deliberately uses the same declaration policy. `StrategyInfo` and
 `RecordedDecision` provide strategy versions, exact private/public policy inputs,
 legal actions, chosen actions, and decision reasons for data collection.
 
+## Headless self-play and datasets
+
+The runner simulates independent deals in parallel. By default it uses available
+logical CPUs; `--threads N` overrides that (`--threads 1` is sequential). Seeds,
+starting seats, output order, and paired-comparison results do not depend on the
+worker count. Bounded batches keep memory independent of collection size.
+
+```bash
+cargo run --release --example self_play -- \
+  --games 1000000 --seed 42 --threads 8 --recording compact \
+  --shard-games 10000 --output data/npc-v2.jsonl.gz
+```
+
+**Compact recording is now the default.** Dataset v2 stores the exact deal using
+stable card IDs, declarations, chronological plays, final result, strategy
+versions, optional decision reasons, and stable deal/game content IDs. It omits
+repeated hands, histories, events, and legal-action lists: the matching engine
+reconstructs and validates them. This is substantially smaller than archiving
+32 complete observations per game. It is not a rules-independent replay format;
+keep the matching engine source/build with long-lived datasets.
+
+Use `--recording full` to retain dataset-v1 full snapshots, including exact
+card-play observations and the trusted round journal. Current round journals
+also include exact declaration observations and choices. Historical full-v1
+files remain supported by the replay tool. Existing data need not be regenerated.
+
+Paths ending in `.gz` enable fast parallel gzip compression directly, without an
+uncompressed temporary file. Each deal is one gzip member; use multi-member
+readers such as `gzip -dc`, Python `gzip.open`, or Rust `MultiGzDecoder`.
+`--shard-games N` rolls files every N deals, keeping all five `--compare` variants
+together. For the example above, files are `npc-v2-00000.jsonl.gz`, etc. Without
+sharding, `--output` names the exact file. No existing file is overwritten.
+Defaults are 100 deals, seed 1, and `data/self-play.jsonl`; choose `.gz` explicitly
+for compressed output. Collection directories `data/` and `games/` are ignored.
+
+A `<output>.manifest.json` sidecar records a run ID, generator binary SHA-256,
+current checkout revision and dirty status, arguments, rules, counts, shard sizes,
+and SHA-256 hashes. `complete` becomes true only after output is flushed and all
+games finish. An interrupted run leaves an incomplete manifest and may have a
+partial last member/line; don't treat it as a complete dataset. Checkout metadata
+is collected at runtime, so a dirty or subsequently edited checkout is not a
+replacement for preserving the matching build. `--help` lists all options.
+
+For a paired comparison against the first-legal policy:
+
+```bash
+cargo run --release --example self_play -- \
+  --compare --games 200 --seed 1000 --output data/comparison-v2.jsonl.gz
+```
+
+Each deal yields the all-first-legal baseline and four games replacing one seat
+at a time with the heuristic. Deals, leaders, declarations, and contracts remain
+identical within the comparison. `--games 200` means 1000 games and 800 seat
+comparisons. Summary JSON goes to stdout. This measures improvement against that
+baseline, not strength against expert opponents. Mode coverage follows heuristic
+bidding, so rare modes may need dedicated collection later.
+
+## Shared recording and replay
+
+Every frontend using `round::Round` already gets a trusted `RoundRecord` through
+`record()`, including human declarations/actions. It owns no filesystem or ML
+runtime. `recording::CompactRecord::from_round(round.record())` exports a compact
+completed journal; `replay()` validates it and returns reconstructed declaration
+and card-play observations. `CompactDatasetGame` adds collection/policy metadata.
+`recording::replay_full` validates old and current full dataset records.
+
+```bash
+cargo build --release --example replay_dataset
+# Stream validated, expanded games to stdout; input can be plain or gzip.
+target/release/examples/replay_dataset data/npc-v2-00000.jsonl.gz
+```
+
+To compact an existing full recording without regenerating games, use a **new**
+output filename. In Bash, `pipefail` makes validation failures fail the pipeline;
+`noclobber` prevents replacing an existing output. A failed conversion may leave
+a partial new file and must not replace your original archive.
+
+```bash
+set -o pipefail
+set -o noclobber
+target/release/examples/replay_dataset --compact games/npc-run-003.jsonl.gz \
+  | gzip -1 > games/npc-run-003-compact.jsonl.gz
+```
+
+Deal IDs group the same four hands across policies, leaders, seat permutations,
+and hand orders for deduplication and leakage-safe training splits. Game IDs
+identify exact episode content, not the collection run. Trusted records contain
+all hands; never send archives to live opponents. Player observations expose
+only their own hand and public information. Private heuristic hand-rating scores
+are retained in journals but removed from public declaration observations.
+
+Exact deals/actions are authoritative; seeds reproduce shuffling only within
+compatible RNG versions. Changes to rules/recording semantics require versioning
+and the matching engine. The baseline dataset teaches the heuristic's behavior;
+more examples alone do not label optimal actions.
+
 ## Development checks
 
 Build and run the tests locally:

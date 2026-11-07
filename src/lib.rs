@@ -6,3 +6,5 @@ pub mod player;
 pub mod rating;
 pub mod round;
 pub mod npc;
+pub mod self_play;
+pub mod recording;
