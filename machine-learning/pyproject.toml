@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "schafkopf-ml"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26,<3", "pyarrow>=18,<30"]
+
+[project.scripts]
+schafkopf-data = "schafkopf_ml.dataset:main"
+schafkopf-train = "schafkopf_ml.train:main"
+
+[tool.setuptools.packages.find]
+include = ["schafkopf_ml*"]

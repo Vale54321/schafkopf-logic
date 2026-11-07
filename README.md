@@ -304,6 +304,13 @@ compatible RNG versions. Changes to rules/recording semantics require versioning
 and the matching engine. The baseline dataset teaches the heuristic's behavior;
 more examples alone do not label optimal actions.
 
+## Machine learning project
+
+The movable [machine-learning project](machine-learning/README.md) provides
+streaming dataset preparation, deal-grouped splits, a documented feature encoder,
+and a NumPy imitation model. Python tooling, datasets, and checkpoints are
+excluded from the published Rust crate.
+
 ## Development checks
 
 Build and run the tests locally:
